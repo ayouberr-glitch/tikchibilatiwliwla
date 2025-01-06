@@ -8,29 +8,42 @@ import { AdviceSection } from './AdviceSection';
 interface TestResultCardProps {
   name: string;
   value: string;
-  range: string;
+  range?: string;
   status: string;
   advice?: string;
   whoRange?: string;
 }
 
+// i18n
+const translation = {
+  show_detailed_advice: 'عرض التوصيات المفصلة',
+  not_available: 'غير متوفر',
+    value_label: "Value:",
+    reference_range_label: "Reference Range:"
+};
+
+const statusConfig = {
+    "ضمن المعدل الطبيعي": {
+        color: "bg-green-500 text-white",
+        icon: <CheckCircle className="w-5 h-5" />,
+      },
+    "خارج المعدل الطبيعي - بشكل طفيف": {
+      color: "bg-yellow-500 text-white",
+        icon: <AlertTriangle className="w-5 h-5" />,
+    },
+    "خارج المعدل الطبيعي - بشكل كبير": {
+        color: "bg-red-500 text-white",
+        icon: <AlertCircle className="w-5 h-5" />,
+    }
+}
+
 export const TestResultCard = ({ name, value, range, status, advice, whoRange }: TestResultCardProps) => {
   const [isAdviceOpen, setIsAdviceOpen] = useState(false);
+  
+  const currentStatusConfig = statusConfig[status] || statusConfig["خارج المعدل الطبيعي - بشكل كبير"];
 
-  const getStatusColor = (status: string) => {
-    if (status.includes("ضمن المعدل الطبيعي")) return "bg-green-500 text-white";
-    if (status.includes("طفيف") || status.includes("متوسط")) return "bg-yellow-500 text-white";
-    return "bg-red-500 text-white";
-  };
-
-  const getStatusIcon = (status: string) => {
-    if (status.includes("ضمن المعدل الطبيعي")) return <CheckCircle className="w-5 h-5" />;
-    if (status.includes("طفيف") || status.includes("متوسط")) return <AlertTriangle className="w-5 h-5" />;
-    return <AlertCircle className="w-5 h-5" />;
-  };
-
-  const displayRange = range || whoRange || 'غير متوفر';
-
+  const displayRange = range || whoRange || translation.not_available;
+  
   return (
     <Card className="glass-card overflow-hidden transition-all duration-300 hover:shadow-lg">
       <div className="p-6">
@@ -41,20 +54,20 @@ export const TestResultCard = ({ name, value, range, status, advice, whoRange }:
               <span className="text-xs text-gray-500">(WHO reference)</span>
             )}
           </div>
-          <div className={`px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 ${getStatusColor(status)}`}>
-            {getStatusIcon(status)}
+          <div className={`px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 ${currentStatusConfig.color}`}>
+            {currentStatusConfig.icon}
             <span>{status}</span>
           </div>
         </div>
         
         <div className="flex flex-col md:flex-row md:items-center gap-4 mb-6">
           <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-500">Value:</span>
+            <span className="text-sm text-gray-500">{translation.value_label}</span>
             <span className="font-medium text-xl text-medical-700">{value}</span>
           </div>
           <Separator orientation="vertical" className="hidden md:block h-6" />
           <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-500">Reference Range:</span>
+            <span className="text-sm text-gray-500">{translation.reference_range_label}</span>
             <span className="text-gray-600">{displayRange}</span>
           </div>
         </div>
@@ -70,7 +83,7 @@ export const TestResultCard = ({ name, value, range, status, advice, whoRange }:
                 <ChevronRight className="w-5 h-5 text-medical-600" />
               }
               <span className="text-sm font-medium text-medical-700">
-                عرض التوصيات المفصلة
+                {translation.show_detailed_advice}
               </span>
             </CollapsibleTrigger>
             <CollapsibleContent className="mt-6">
