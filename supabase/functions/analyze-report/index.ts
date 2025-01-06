@@ -2,23 +2,80 @@ import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
+// Helper function to read an environment variable
+function getEnvVar(key: string, defaultValue?: string): string {
+    const value = Deno.env.get(key);
+    if (value === undefined && defaultValue === undefined) {
+        throw new Error(`Missing environment variable: ${key}`);
+    }
+    return value !== undefined ? value : defaultValue!;
+}
+
+// Load environment variables (can also be done using .env files in Deno, but kept simple here)
+const GEMINI_API_KEY = getEnvVar("GEMINI_API_KEY");
+const GEMINI_MODEL = getEnvVar("GEMINI_MODEL", "gemini-1.5-flash"); // Fallback if no env var provided
+
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+    "Access-Control-Allow-Origin": "*", // Consider changing this in production to specific origins
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type",
+  };
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
+  if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
-    if (!GEMINI_API_KEY) {
-      throw new Error('Missing Gemini API key');
+    // Parse JSON from request body (with basic input validation)
+    let requestBody;
+    try {
+      requestBody = await req.json();
+      if (!requestBody || typeof requestBody !== 'object') {
+          throw new Error("Invalid request body format. Must be JSON");
+      }
+    } catch (e) {
+        console.error("Error parsing JSON:", e);
+        return new Response(
+            JSON.stringify({ success: false, error: "Invalid JSON body" }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
     }
 
-    const { image, imageType, age, sex, language } = await req.json();
+
+    const { image, imageType, age, sex, language } = requestBody;
+    
+    // Input Validation
+    if (!image || typeof image !== "string") {
+       return new Response(
+         JSON.stringify({ success: false, error: 'Image data is required and must be a string' }),
+         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+       );
+     }
+    if (!imageType || typeof imageType !== "string") {
+        return new Response(
+            JSON.stringify({ success: false, error: 'ImageType is required and must be a string' }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+      }
+      if (!age || typeof age !== "number" || age <= 0 ) {
+        return new Response(
+            JSON.stringify({ success: false, error: 'Age is required and must be a positive number' }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+    }
+    if (!sex || (sex !== "male" && sex !== "female")) {
+        return new Response(
+            JSON.stringify({ success: false, error: 'Sex is required and must be "male" or "female"' }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+    }
+     if (!language || typeof language !== "string") {
+        return new Response(
+            JSON.stringify({ success: false, error: 'Language is required and must be a string' }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+    }
 
     console.log("Processing request for:", { age, sex, language, imageType });
 
@@ -64,91 +121,91 @@ serve(async (req) => {
     Advice: [النصيحة المفصلة بالعربية حسب الهيكل أعلاه]`;
 
     const payload = {
-      contents: [{
-        parts: [
-          { text: prompt },
-          {
-            inline_data: {
-              mime_type: imageType,
-              data: image
-            }
-          }
-        ]
-      }]
+      contents: [
+        {
+          parts: [
+            { text: prompt },
+            {
+              inline_data: {
+                mime_type: imageType,
+                data: image,
+              },
+            },
+          ],
+        },
+      ],
     };
 
-    console.log("Sending request to Gemini API...");
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload)
-    });
+      console.log("Sending request to Gemini API...");
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Gemini API error response:', errorText);
-      throw new Error(`Gemini API error: ${errorText}`);
+        const errorText = await response.text();
+        console.error("Gemini API error response:", {
+          status: response.status,
+          headers: response.headers,
+          body: errorText,
+        });
+        throw new Error(`Gemini API error ${response.status}: ${errorText}`);
     }
 
     const result = await response.json();
     console.log("Gemini API response received");
+      
 
-    const analysisText = result.candidates[0].content.parts[0].text;
+    // Safely access the text content from the response
+    const analysisText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
     
+      if(!analysisText) {
+          throw new Error("Gemini API response did not contain the expected text");
+      }
     // Parse the response into structured data
     const testResults = [];
-    const testBlocks = analysisText.split('\n\n');
+    const testBlocks = analysisText.split('\n\n').filter(Boolean); // filter empty
     
-    let currentResult = {};
     for (const block of testBlocks) {
-      const lines = block.split('\n');
-      
-      for (const line of lines) {
-        if (line.startsWith('Test Name: ')) {
-          if (Object.keys(currentResult).length > 0) {
-            testResults.push(currentResult);
-            currentResult = {};
-          }
-          currentResult.name = line.replace('Test Name: ', '').trim();
-        } else if (line.startsWith('Value: ')) {
-          currentResult.value = line.replace('Value: ', '').trim();
-        } else if (line.startsWith('Reference Range: ')) {
-          currentResult.range = line.replace('Reference Range: ', '').trim();
-        } else if (line.startsWith('Status: ')) {
-          currentResult.status = line.replace('Status: ', '').trim();
-        } else if (line.startsWith('Advice: ')) {
-          currentResult.advice = line.replace('Advice: ', '').trim();
-        } else if (currentResult.advice) {
-          currentResult.advice += '\n' + line;
-        }
-      }
-    }
-    
-    if (Object.keys(currentResult).length > 0) {
+        const nameMatch = block.match(/^Test Name:\s*(?<name>[^\n]*)/m);
+        const valueMatch = block.match(/^Value:\s*(?<value>[^\n]*)/m);
+        const rangeMatch = block.match(/^Reference Range:\s*(?<range>[^\n]*)/m);
+        const statusMatch = block.match(/^Status:\s*(?<status>[^\n]*)/m);
+        const adviceMatch = block.match(/^Advice:\s*(?<advice>(.|\n)*)$/m); // Allows multiline advice
+
+        const currentResult = {
+            name: nameMatch?.groups?.name?.trim() || "Unknown Name",
+            value: valueMatch?.groups?.value?.trim() || "Unknown Value",
+            range: rangeMatch?.groups?.range?.trim() || "Unknown Range",
+            status: statusMatch?.groups?.status?.trim() || "Unknown Status",
+            advice: adviceMatch?.groups?.advice?.trim() || "No advice provided",
+        };
+
       testResults.push(currentResult);
     }
+    
 
-    console.log("Parsed test results:", testResults);
+      console.log("Parsed test results:", testResults);
 
     return new Response(
       JSON.stringify({ success: true, results: testResults }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-
   } catch (error) {
-    console.error('Error in analyze-report function:', error);
+    console.error("Error in analyze-report function:", error);
     return new Response(
-      JSON.stringify({ 
-        success: false, 
+      JSON.stringify({
+        success: false,
         error: error.message,
-        errorDetails: error instanceof Error ? error.stack : undefined
+        errorDetails: error instanceof Error ? error.stack : undefined,
       }),
-      { 
+      {
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );
   }
